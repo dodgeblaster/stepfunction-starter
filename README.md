@@ -2,9 +2,9 @@
 
 -   ✅ Basic App
 -   ✅ Pipeline
--   ✅ Integration Tests
--   ✅ Canary
--   ✅ Dashboards
+-   ✅ Placeholder Integration Test
+-   ✅ Canary Traffic
+-   ✅ Dashboard
 -   ✅ Alarms on Dashboard Metrics
 -   ✅ Gradual deployment
 -   ✅ Rollback on Dashboard Metric Alarms
