@@ -1,0 +1,82 @@
+Parameters:
+    Stage:
+        Type: String
+
+Resources:
+    ScheduledRule:
+        Type: AWS::Events::Rule
+        Properties:
+            Description: 'ScheduledRule'
+            ScheduleExpression: 'rate(10 minutes)'
+            State: 'ENABLED'
+            Targets:
+                - Arn:
+                      Fn::GetAtt:
+                          - 'SyntheticTrafficFunction'
+                          - 'Arn'
+                  Id: 'TargetFunctionV1'
+    PermissionForEventsToInvokeLambda:
+        Type: AWS::Lambda::Permission
+        Properties:
+            FunctionName: !Ref 'SyntheticTrafficFunction'
+            Action: 'lambda:InvokeFunction'
+            Principal: 'events.amazonaws.com'
+            SourceArn:
+                Fn::GetAtt:
+                    - 'ScheduledRule'
+                    - 'Arn'
+
+    SyntheticTrafficFunction:
+        Type: AWS::Lambda::Function
+        Properties:
+            Runtime: nodejs14.x
+            Role: !GetAtt LambdaRole.Arn
+            Handler: index.handler
+            Code:
+                ZipFile: |
+                    const AWS = require('aws-sdk')
+                    const send = async () => {
+                        const eventbridge = new AWS.EventBridge({ region: 'us-east-1' })
+                        return await eventbridge
+                            .putEvents({
+                                Entries: [
+                                    {
+                                        Detail: `{}`,
+                                        DetailType: 'startPayment',
+                                        EventBusName: 'default',
+                                        Source: 'custom.api',
+                                        Time: new Date()
+                                    }
+                                ]
+                            })
+                            .promise()
+                    }
+
+                    const rndInt = () => Math.floor(Math.random() * 3) + 1
+                    exports.handler = async function(event) {  
+                        for (const x of [...Array(rndInt()).keys()]) {
+                            const res = await send()
+                        }
+                    }
+    LambdaRole:
+        Type: AWS::IAM::Role
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: 2012-10-17
+                Statement:
+                    - Effect: Allow
+                      Action:
+                          - sts:AssumeRole
+                      Principal:
+                          Service:
+                              - lambda.amazonaws.com
+            Policies:
+                - PolicyName: !Sub 'stepfunctionstartersynthetictraffic-lambdapolicy-${Stage}'
+                  PolicyDocument:
+                      Version: '2012-10-17'
+                      Statement:
+                          - Effect: Allow
+                            Action:
+                                - events:PutEvents
+                            Resource:
+                                - '*'

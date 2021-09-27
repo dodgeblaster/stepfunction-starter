@@ -1,0 +1,29 @@
+version: 0.2
+phases:
+    install:
+        runtime-versions:
+            python: 3.8
+        commands:
+            - pip install --upgrade pip
+            - pip install --upgrade awscli aws-sam-cli
+    build:
+        commands:
+            - echo "building test..."
+            - sam build --template ./app/template.yaml
+            - echo "BUCKET ${TESTING_ARTIFACT_BUCKET}"
+            - sam package --s3-bucket ${TESTING_ARTIFACT_BUCKET}
+              --region ${TESTING_REGION}
+              --output-template-file packaged-test.yaml
+
+            - echo "building prod..."
+            - sam build --template ./app/template.yaml
+            - echo "BUCKET ${TESTING_ARTIFACT_BUCKET}"
+            - sam package --s3-bucket ${TESTING_ARTIFACT_BUCKET}
+              --region ${TESTING_REGION}
+              --output-template-file packaged-prod.yaml
+
+artifacts:
+    files:
+        - packaged-test.yaml
+        - packaged-prod.yaml
+        - app/deploy.yml

@@ -1,0 +1,370 @@
+Parameters:
+    BranchName:
+        Description: GitHub branch name
+        Type: String
+        Default: main
+    RepositoryName:
+        Description: GitHub repository name
+        Type: String
+        Default: stepfunction-starter
+    GitHubOwner:
+        Type: String
+        Default: dodgeblaster
+Resources:
+    # - - - - - - - - - - - - - - - - - - - - - - - -
+    # Source
+    # - Connection
+    # - - - - - - - - - - - - - - - - - - - - - - - -
+    CodeStarConnection:
+        Type: AWS::CodeStarConnections::Connection
+        Properties:
+            ConnectionName: GitRepositoryConnection
+            ProviderType: GitHub
+
+    # - - - - - - - - - - - - - - - - - - - - - - - -
+    # S3 Artifact Bucket
+    # - Bucket
+    # - BucketRole
+    # - - - - - - - - - - - - - - - - - - - - - - - -
+    CodePipelineArtifactStoreBucket:
+        Type: 'AWS::S3::Bucket'
+        DeletionPolicy: Retain
+        UpdateReplacePolicy: Retain
+        Properties:
+            VersioningConfiguration:
+                Status: Enabled
+            BucketEncryption:
+                ServerSideEncryptionConfiguration:
+                    - ServerSideEncryptionByDefault:
+                          SSEAlgorithm: AES256
+
+    CodePipelineArtifactStoreBucketPolicy:
+        Type: 'AWS::S3::BucketPolicy'
+        Properties:
+            Bucket: !Ref CodePipelineArtifactStoreBucket
+            PolicyDocument:
+                Version: 2012-10-17
+                Statement:
+                    - Sid: DenyUnEncryptedObjectUploads
+                      Effect: Deny
+                      Principal: '*'
+                      Action: 's3:PutObject'
+                      Resource: !Join
+                          - ''
+                          - - !GetAtt
+                              - CodePipelineArtifactStoreBucket
+                              - Arn
+                            - /*
+                      Condition:
+                          StringNotEquals:
+                              's3:x-amz-server-side-encryption': 'aws:kms'
+                    - Sid: DenyInsecureConnections
+                      Effect: Deny
+                      Principal: '*'
+                      Action: 's3:*'
+                      Resource: !Join
+                          - ''
+                          - - !GetAtt
+                              - CodePipelineArtifactStoreBucket
+                              - Arn
+                            - /*
+                      Condition:
+                          Bool:
+                              'aws:SecureTransport': false
+
+    # - - - - - - - - - - - - - - - - - - - - - - - -
+    # Code Build
+    # - CodeBuild for build
+    # - CodeBuild for deploy
+    # - CodeBuildRole
+    # - - - - - - - - - - - - - - - - - - - - - - - -
+    CodeBuildProjectBuildAndPackage:
+        Type: AWS::CodeBuild::Project
+        Properties:
+            Artifacts:
+                Type: CODEPIPELINE
+            Environment:
+                Type: LINUX_CONTAINER
+                ComputeType: BUILD_GENERAL1_SMALL
+                Image: aws/codebuild/standard:5.0
+                PrivilegedMode: true
+                EnvironmentVariables:
+                    - Name: TESTING_REGION
+                      Value: us-east-1
+                    - Name: TESTING_ARTIFACT_BUCKET
+                      Value: !Ref CodePipelineArtifactStoreBucket
+            ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+            Name: stepfunctionstarter-build
+            QueuedTimeoutInMinutes: 5
+            Source:
+                Type: CODEPIPELINE
+                BuildSpec: app/build.yml
+    CodeBuildProjectDeploy:
+        Type: AWS::CodeBuild::Project
+        Properties:
+            Artifacts:
+                Type: CODEPIPELINE
+            Environment:
+                Type: LINUX_CONTAINER
+                ComputeType: BUILD_GENERAL1_SMALL
+                Image: aws/codebuild/amazonlinux2-x86_64-standard:3.0
+            ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+            Source:
+                Type: CODEPIPELINE
+                BuildSpec: app/deploy.yml
+    CodeBuildServiceRole:
+        Type: AWS::IAM::Role
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                    - Effect: Allow
+                      Action: 'sts:AssumeRole'
+                      Principal:
+                          Service:
+                              - codebuild.amazonaws.com
+            Path: /
+            Policies:
+                - PolicyName: CodeBuildLogs
+                  PolicyDocument:
+                      Version: '2012-10-17'
+                      Statement:
+                          - Effect: Allow
+                            Action:
+                                - 'logs:CreateLogGroup'
+                                - 'logs:CreateLogStream'
+                                - 'logs:PutLogEvents'
+                            Resource:
+                                - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/first-code-build'
+                                - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/first-code-build:*'
+                                - '*'
+                - PolicyName: CodeBuildArtifactsBucket
+                  PolicyDocument:
+                      Version: '2012-10-17'
+                      Statement:
+                          - Effect: Allow
+                            Action:
+                                - 's3:GetObject'
+                                - 's3:GetObjectVersion'
+                                - 's3:PutObject'
+                            Resource:
+                                - !Sub 'arn:aws:s3:::${CodePipelineArtifactStoreBucket}/*'
+                                - '*'
+                          - Effect: Allow
+                            Action:
+                                - 'kms:Decrypt'
+                                - 'kms:Encrypt'
+                                - 'kms:GenerateDataKey'
+                            Resource:
+                                - '*'
+                - PolicyName: CodeBuildParameterStore
+                  PolicyDocument:
+                      Version: '2012-10-17'
+                      Statement:
+                          - Effect: Allow
+                            Action: 'ssm:GetParameters'
+                            Resource: '*'
+                - PolicyName: CodeBuildDeploy
+                  PolicyDocument:
+                      Version: '2012-10-17'
+                      Statement:
+                          - Effect: Allow
+                            Action:
+                                - 'cloudformation:CreateStack'
+                                - 'cloudformation:DescribeStacks'
+                                - 'cloudformation:DeleteStack'
+                                - 'cloudformation:UpdateStack'
+                                - 'cloudformation:CreateChangeSet'
+                                - 'cloudformation:ExecuteChangeSet'
+                                - 'cloudformation:DeleteChangeSet'
+                                - 'cloudformation:DescribeChangeSet'
+                                - 'cloudformation:SetStackPolicy'
+                                - 'cloudformation:SetStackPolicy'
+                                - 'cloudformation:ValidateTemplate'
+                            Resource:
+                                - !Sub 'arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*'
+                                - '*'
+                          - Effect: Allow
+                            Action: '*'
+                            Resource: '*'
+
+    # - - - - - - - - - - - - - - - - - - - - - - - -
+    # CodePipeline
+    # - Pipeline
+    # - PipelineRole
+    # - - - - - - - - - - - - - - - - - - - - - - - -
+    AppPipeline:
+        Type: 'AWS::CodePipeline::Pipeline'
+        Properties:
+            Name: stepfunction-starter-pipeline
+            RoleArn: !GetAtt CodePipelineServiceRole.Arn
+            ArtifactStore:
+                Type: S3
+                Location: !Ref CodePipelineArtifactStoreBucket
+            Stages:
+                - Name: Source
+                  Actions:
+                      - Name: SourceCodeRepo
+                        ActionTypeId:
+                            Category: Source
+                            Owner: AWS
+                            Provider: CodeStarSourceConnection
+                            Version: '1'
+                        Configuration:
+                            ConnectionArn: !Ref CodeStarConnection
+                            FullRepositoryId: !Sub '${GitHubOwner}/${RepositoryName}'
+                            BranchName: !Ref BranchName
+                        OutputArtifacts:
+                            - Name: SourceCodeAsZip
+                        RunOrder: 1
+                - Name: Build
+                  Actions:
+                      - Name: CodeBuild
+                        ActionTypeId:
+                            Category: Build
+                            Owner: AWS
+                            Provider: CodeBuild
+                            Version: '1'
+                        Configuration:
+                            ProjectName: !Ref CodeBuildProjectBuildAndPackage
+                        InputArtifacts:
+                            - Name: SourceCodeAsZip
+                        OutputArtifacts:
+                            - Name: BuildArtifactAsZip
+                - Name: Staging
+                  Actions:
+                      - Name: DeployStaging
+                        ActionTypeId:
+                            Category: Build
+                            Owner: AWS
+                            Provider: CodeBuild
+                            Version: '1'
+                        RunOrder: 1
+                        Configuration:
+                            ProjectName: !Ref CodeBuildProjectDeploy
+                            EnvironmentVariables: !Sub |
+                                [
+                                  {"name": "ENV_TEMPLATE", "value": "packaged-test.yaml"},
+                                  {"name": "ENV_REGION", "value": "us-east-1"},
+                                  {"name": "ENV_STAGE", "value": "staging"},
+                                  {"name": "ENV_STACK_NAME", "value": "stepfunction-starter-staging"},
+                                  {"name": "ENV_BUCKET", "value": "${CodePipelineArtifactStoreBucket}"}
+                                ]
+                        InputArtifacts:
+                            - Name: BuildArtifactAsZip
+                      - Name: IntegrationTests
+                        ActionTypeId:
+                            Category: Invoke
+                            Owner: AWS
+                            Provider: Lambda
+                            Version: '1'
+                        RunOrder: 2
+                        Configuration:
+                            FunctionName: stepfunction-starter-staging-stepfunctionstarterAppTests-1G0X2-TestFunction-BzDaCZGU1yA1
+                        OutputArtifacts: []
+                        InputArtifacts: []
+                        Region: us-east-1
+
+                - Name: Prod
+                  Actions:
+                      - Name: Approval
+                        ActionTypeId:
+                            Category: Approval
+                            Owner: AWS
+                            Provider: Manual
+                            Version: '1'
+                        RunOrder: 1
+                      - Name: DeployProd
+                        ActionTypeId:
+                            Category: Build
+                            Owner: AWS
+                            Provider: CodeBuild
+                            Version: '1'
+                        RunOrder: 2
+                        Configuration:
+                            ProjectName: !Ref CodeBuildProjectDeploy
+                            EnvironmentVariables: !Sub |
+                                [
+                                  {"name": "ENV_TEMPLATE", "value": "packaged-prod.yaml"},
+                                  {"name": "ENV_REGION", "value": "us-east-1"},
+                                  {"name": "ENV_STAGE", "value": "prod"},
+                                  {"name": "ENV_STACK_NAME", "value": "stepfunction-starter-prod"},
+                                  {"name": "ENV_BUCKET", "value": "${CodePipelineArtifactStoreBucket}"}
+                                ]
+                        InputArtifacts:
+                            - Name: BuildArtifactAsZip
+
+    CodePipelineServiceRole:
+        Type: 'AWS::IAM::Role'
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: 2012-10-17
+                Statement:
+                    - Effect: Allow
+                      Principal:
+                          Service:
+                              - codepipeline.amazonaws.com
+                      Action: 'sts:AssumeRole'
+            Path: /
+            Policies:
+                - PolicyName: AWS-CodePipeline-Service-3
+                  PolicyDocument:
+                      Version: 2012-10-17
+                      Statement:
+                          - Effect: Allow
+                            Action:
+                                - 'codecommit:CancelUploadArchive'
+                                - 'codecommit:GetBranch'
+                                - 'codecommit:GetCommit'
+                                - 'codecommit:GetUploadArchiveStatus'
+                                - 'codecommit:UploadArchive'
+                            Resource: '*'
+                          - Effect: Allow
+                            Action:
+                                - 'codedeploy:CreateDeployment'
+                                - 'codedeploy:GetApplicationRevision'
+                                - 'codedeploy:GetDeployment'
+                                - 'codedeploy:GetDeploymentConfig'
+                                - 'codedeploy:RegisterApplicationRevision'
+                            Resource: '*'
+                          - Effect: Allow
+                            Action:
+                                - 'codebuild:BatchGetBuilds'
+                                - 'codebuild:StartBuild'
+                            Resource: '*'
+
+                          - Effect: Allow
+                            Action:
+                                - 'lambda:InvokeFunction'
+                                - 'lambda:ListFunctions'
+                            Resource: '*'
+                          - Effect: Allow
+                            Action:
+                                - 'iam:PassRole'
+                            Resource: '*'
+                          - Effect: Allow
+                            Action:
+                                - 'elasticbeanstalk:*'
+                                - 'ec2:*'
+                                - 'elasticloadbalancing:*'
+                                - 'autoscaling:*'
+                                - 'cloudwatch:*'
+                                - 's3:*'
+                                - 'sns:*'
+                                - 'cloudformation:*'
+                                - 'rds:*'
+                                - 'sqs:*'
+                                - 'ecs:*'
+                            Resource: '*'
+                          - Effect: Allow
+                            Action:
+                                - 'codestar-connections:UseConnection'
+                            Resource: !Ref CodeStarConnection
+                          - Effect: Allow
+                            Action:
+                                - 's3:GetObject'
+                                - 's3:GetObjectVersion'
+                                - 's3:PutObject'
+                            Resource:
+                                - !Sub 'arn:aws:s3:::${CodePipelineArtifactStoreBucket}/*'
+                                - '*'

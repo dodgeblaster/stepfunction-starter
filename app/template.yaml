@@ -1,0 +1,124 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+    sam-app
+
+    Sample SAM Template for sam-app
+
+Parameters:
+    Stage:
+        Type: String
+        Default: dev
+
+Conditions:
+    NotDev: !Not
+        - !Equals
+          - !Ref Stage
+          - dev
+
+Globals:
+    Function:
+        Timeout: 3
+
+Resources:
+    HelloWorldFunction:
+        Type: AWS::Serverless::Function
+        Properties:
+            CodeUri: functions/payment
+            Handler: app.lambdaHandler
+            Runtime: nodejs14.x
+            AutoPublishAlias: live
+            DeploymentPreference:
+                Enabled: true
+                Type: Canary10Percent5Minutes
+                Alarms:
+                    - !Sub 'StepFunctionStarterErrorsAlarm-${Stage}'
+    ErrorsAlarm:
+        Type: 'AWS::CloudWatch::Alarm'
+        Properties:
+            AlarmName: !Sub 'StepFunctionStarterErrorsAlarm-${Stage}'
+            AlarmDescription: 'Trigger an alarm if an error is recorded'
+            MetricName: 'Errors'
+            Namespace: 'AWS/Lambda'
+            Dimensions:
+                - Name: 'FunctionName'
+                  Value: !Ref HelloWorldFunction
+            Statistic: 'Sum'
+            Period: 60
+            EvaluationPeriods: 1
+            Threshold: 0
+            ComparisonOperator: 'GreaterThanThreshold'
+
+    MyStateMachine:
+        Type: AWS::Serverless::StateMachine
+        Properties:
+            DefinitionUri: statemachines/my-statemachine.asl.json
+            DefinitionSubstitutions:
+                PaymentTable: !Ref PaymentTable
+                MockEmitTable: !Ref MockEmitTable
+                PaymentFunctionArn: !GetAtt HelloWorldFunction.Arn
+            Policies:
+                - LambdaInvokePolicy:
+                      FunctionName: !Ref HelloWorldFunction
+                - DynamoDBWritePolicy:
+                      TableName: !Ref PaymentTable
+                - DynamoDBWritePolicy:
+                      TableName: !Ref MockEmitTable
+                - EventBridgePutEventsPolicy:
+                      EventBusName: default
+            Events:
+                Trigger:
+                    Type: CloudWatchEvent
+                    Properties:
+                        Pattern:
+                            source:
+                                - custom.api
+                            detail-type:
+                                - startPayment
+    PaymentTable:
+        Type: AWS::Serverless::SimpleTable
+        Properties:
+            PrimaryKey:
+                Name: id
+                Type: String
+    MockEmitTable:
+        Type: AWS::Serverless::SimpleTable
+        Properties:
+            PrimaryKey:
+                Name: id
+                Type: String
+
+    # ---------------------------------------------------
+    # Templates
+    # ---------------------------------------------------
+
+    StepFunctionStarterMonitoring:
+        Type: AWS::Serverless::Application
+        Condition: NotDev
+        Properties:
+            Location: ./templates/monitoring.yml
+            Parameters:
+                FunctionName: !Ref HelloWorldFunction
+                Stage: !Ref Stage
+
+    StepFunctionStarterCanary:
+        Type: AWS::Serverless::Application
+        Condition: NotDev
+        Properties:
+            Location: ./templates/canary.yml
+            Parameters:
+                Stage: !Ref Stage
+
+    StepFunctionStarterTests:
+        Type: AWS::Serverless::Application
+        Condition: NotDev
+        Properties:
+            Location: ./templates/tests.yml
+
+Outputs:
+    HelloWorldFunction:
+        Description: 'Hello World Lambda Function ARN'
+        Value: !GetAtt HelloWorldFunction.Arn
+    HelloWorldFunctionIamRole:
+        Description: 'Implicit IAM Role created for Hello World function'
+        Value: !GetAtt HelloWorldFunctionRole.Arn
