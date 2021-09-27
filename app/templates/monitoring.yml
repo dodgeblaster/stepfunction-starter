@@ -1,0 +1,125 @@
+# Look at:
+# https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-template-nested-applications.html
+
+Parameters:
+    FunctionName:
+        Type: String
+    Stage:
+        Type: String
+
+Resources:
+    Dashboard:
+        Type: AWS::CloudWatch::Dashboard
+        Properties:
+            DashboardName: !Sub 'StepFunctionStarterDashboard-${Stage}'
+            DashboardBody: !Sub
+                - |-
+                    {
+                      "widgets": [
+                          {
+                              "height": 6,
+                              "width": 6,
+                              "y": 0,
+                              "x": 6,
+                              "type": "metric",
+                              "properties": {
+                                  "metrics": [
+                                      [ "AWS/Lambda", "Duration", "FunctionName", "${FunctionName}" ]
+                                  ],
+                                  "view": "timeSeries",
+                                  "stacked": false,
+                                  "region": "us-east-1",
+                                  "period": 300,
+                                  "annotations": {
+                                      "horizontal": [
+                                          {
+                                              "color": "#d62728",
+                                              "label": "Alarm",
+                                              "value": 200
+                                          },
+                                          {
+                                              "color": "#2ca02c",
+                                              "label": "Goal",
+                                              "value": 50
+                                          }
+                                      ]
+                                  },
+                                  "stat": "Average"
+                              }
+                          },
+                          {
+                              "height": 6,
+                              "width": 6,
+                              "y": 0,
+                              "x": 18,
+                              "type": "metric",
+                              "properties": {
+                                  "metrics": [
+                                      [ "AWS/Lambda", "Errors", "FunctionName", "${FunctionName}"]
+                                  ],
+                                  "view": "timeSeries",
+                                  "stacked": false,
+                                  "region": "us-east-1",
+                                  "period": 300,
+                                  "annotations": {
+                                      "horizontal": [
+                                          {
+                                              "label": "Alarm",
+                                              "value": 10
+                                          },
+                                          {
+                                              "label": "Investigate",
+                                              "value": 1
+                                          },
+                                          {
+                                              "label": "Goal",
+                                              "value": 0
+                                          }
+                                      ]
+                                  },
+                                  "stat": "Sum"
+                              }
+                          },
+                          {
+                              "height": 6,
+                              "width": 6,
+                              "y": 0,
+                              "x": 12,
+                              "type": "metric",
+                              "properties": {
+                                  "metrics": [
+                                      [ "AWS/Lambda", "Invocations", "FunctionName", "${FunctionName}" ]
+                                  ],
+                                  "view": "timeSeries",
+                                  "stacked": false,
+                                  "region": "us-east-1",
+                                  "period": 300,
+                                  "annotations": {
+                                      "horizontal": [
+                                          {
+                                              "label": "Alarm",
+                                              "value": 0
+                                          },
+                                          {
+                                              "color": "#2ca02c",
+                                              "label": "Minimum Traffic",
+                                              "value": 3
+                                          }
+                                      ]
+                                  },
+                                  "stat": "Sum"
+                              }
+                          },
+                          {
+                              "height": 6,
+                              "width": 6,
+                              "y": 0,
+                              "x": 0,
+                              "type": "text",
+                              "properties": {
+                                  "markdown": "## StepFunctionStarter Lambda\nThis is an example doc on this row of dashboards\n\n\n[button:RunBook 1](https://amazon.com) [button:RunBook 2](https://amazon.com)\n"
+                              }
+                          }
+                      ]
+                    }
+                - { FunctionName: !Ref FunctionName }

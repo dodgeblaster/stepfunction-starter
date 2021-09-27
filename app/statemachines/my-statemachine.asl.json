@@ -1,0 +1,100 @@
+{
+    "Comment": "A state machine",
+    "StartAt": "Make Payment",
+    "States": {
+        "Make Payment": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+                "FunctionName": "${PaymentFunctionArn}",
+                "Payload": {
+                    "synth": true
+                }
+            },
+            "Next": "Record Payment"
+        },
+        "Record Payment": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::dynamodb:putItem",
+            "Parameters": {
+                "TableName": "${PaymentTable}",
+                "Item": {
+                    "Id": {
+                        "S.$": "$.ResponseBody.id"
+                    },
+                    "Payload": {
+                        "S.$": "$.ResponseBody.payload"
+                    }
+                }
+            },
+            "Retry": [
+                {
+                    "ErrorEquals": ["States.TaskFailed"],
+                    "IntervalSeconds": 20,
+                    "MaxAttempts": 5,
+                    "BackoffRate": 10
+                }
+            ],
+            "Next": "Emit"
+        },
+
+        "Emit": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Variable": "$.ResponseBody.synth",
+                    "IsPresent": true,
+                    "Next": "Mock Emit"
+                },
+                {
+                    "Variable": "$.ResponseBody.synth",
+                    "IsNull": true,
+                    "Next": "Real Emit"
+                }
+            ],
+            "Default": "Real Emit"
+        },
+        "Mock Emit": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::dynamodb:putItem",
+            "Parameters": {
+                "TableName": "${MockEmitTable}",
+                "Item": {
+                    "Id": {
+                        "S.$": "$.ResponseBody.id"
+                    },
+                    "Payload": {
+                        "S.$": "$.ResponseBody.payload"
+                    }
+                }
+            },
+            "Retry": [
+                {
+                    "ErrorEquals": ["States.TaskFailed"],
+                    "IntervalSeconds": 20,
+                    "MaxAttempts": 5,
+                    "BackoffRate": 10
+                }
+            ],
+            "End": true
+        },
+        "Real Emit": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::events:putEvents",
+
+            "Parameters": {
+                "Entries": [
+                    {
+                        "Detail": {
+                            "Message": "Hello from Step Functions!"
+                        },
+                        "DetailType": "MessageFromStepFunctions",
+                        "EventBusName": "default",
+                        "Source": "my.statemachine"
+                    }
+                ]
+            },
+            "End": true
+        }
+    }
+}
