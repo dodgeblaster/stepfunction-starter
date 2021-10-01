@@ -6,10 +6,13 @@ Parameters:
     RepositoryName:
         Description: GitHub repository name
         Type: String
-        Default: stepfunction-starter
+        Default: YOUR_REPO
     GitHubOwner:
         Type: String
-        Default: dodgeblaster
+        Default: YOUR_ACCOUNT
+    TestFunctionName:
+        Type: String
+        Default: YOUR_FUNCTION
 Resources:
     # - - - - - - - - - - - - - - - - - - - - - - - -
     # Source
@@ -260,7 +263,7 @@ Resources:
                             Version: '1'
                         RunOrder: 2
                         Configuration:
-                            FunctionName: stepfunction-starter-staging-stepfunctionstarterAppTests-1G0X2-TestFunction-BzDaCZGU1yA1
+                            FunctionName: "${TestFunctionName}"
                         OutputArtifacts: []
                         InputArtifacts: []
                         Region: us-east-1
